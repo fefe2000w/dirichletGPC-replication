@@ -98,6 +98,7 @@ opt = gpflow.optimizers.Scipy()
 print('\nloglik (before) =', model.maximum_log_likelihood_objective())
 print('ampl =', model.kernel.variance)
 print('leng =', model.kernel.lengthscales)
+### First issue: argument (closure) of opt.minimize
 target = lambda: -model.maximum_log_likelihood_objective() #/ Y_tilde.shape[1]
 opt.minimize(target, model.trainable_variables)
 print('loglik  (after) =', model.maximum_log_likelihood_objective())
