@@ -173,8 +173,10 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
             mu = mean
             cov = var
         else:
-            mu = tf.stack([mu, mean])
-            cov = tf.stack([cov, var])
+            mu = tf.concat([mu, mean], 1)
+            cov = tf.concat([cov, var], 1)
+
+        ### Second issue: cannot concat scalar
         
         mu = mu + self.mean_function(Xnew)
         return mu, cov
