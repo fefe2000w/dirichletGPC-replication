@@ -1,1 +1,80 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Apr 23 22:16:13 2024
 
+@author: lisy
+"""
+
+import gpflow
+import numpy as np
+import scipy.stats
+import matplotlib.pylab as plt
+
+
+import heteroskedastic
+
+
+
+N = 20  # training data
+np.random.seed(1235)
+
+
+
+## create synthetic dataset
+## ===============================
+xmax = 15
+X = np.random.rand(N,1) * xmax
+Xtest = np.linspace(0, xmax*1.5, 200).reshape(-1, 1)
+Z = X.copy()
+
+y = np.cos(X.flatten()) / 2 + 0.5
+y = np.random.rand(y.size) > y
+y = y.astype(int)
+if np.sum(y==1) == 0:
+    y[0] = 1
+elif np.sum(y==0) == 0:
+    y[0] = 0
+
+# one-hot vector encoding
+Y01 = np.zeros((y.size, 2))
+Y01[:,0], Y01[:,1] = 1-y, y
+
+
+def ML_alpha(a_eps):
+    s2_tilde = np.log(1.0/(Y01+a_eps) + 1)
+    Y_tilde = np.log(Y01+a_eps) - 0.5 * s2_tilde
+
+    ymean = np.log(Y01.mean(0)) + np.mean(Y_tilde-np.log(Y01.mean(0)))
+    Y_tilde = Y_tilde - ymean
+
+    kernel = gpflow.kernels.RBF(variance=np.var(Y_tilde), lengthscales=np.std(X))
+    model = heteroskedastic.SGPRh((X, Y_tilde), kernel=kernel, sn2=s2_tilde, Z=Z)
+
+    opt = gpflow.optimizers.Scipy()
+    before = model.maximum_log_likelihood_objective()
+    opt.minimize(model.training_loss, model.trainable_variables)
+    after = model.maximum_log_likelihood_objective()
+    
+    return before, after
+
+alpha_list = []
+before_list = []
+after_list = []
+
+for a_eps in np.linspace(1e-10, 0.1, 20):
+    before, after = ML_alpha(a_eps)
+    alpha_list.append(a_eps)
+    before_list.append(before)
+    after_list.append(after)
+    
+plt.scatter(alpha_list, before_list, marker='o')
+plt.xlabel('Alpha')
+plt.ylabel('Before List')
+plt.title('ML_alpha (before)')
+plt.show()
+
+plt.scatter(alpha_list, after_list, marker='o')
+plt.xlabel('Alpha')
+plt.ylabel('After List')
+plt.title('ML_alpha (after)')
+plt.show()
