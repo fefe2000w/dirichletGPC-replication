@@ -1,29 +1,9 @@
-#!/usr/bin/python3
-# Copyright 2018 Dimitrios Milios, Raffaello Camoriano, 
-#                Pietro Michiardi,Lorenzo Rosasco, Maurizio Filippone
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-
-#     http://www.apache.org/licenses/LICENSE-2.0
-
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-pip install --upgrade tensorflow
-pip install --upgrade gpflow
-
 import gpflow
 import numpy as np
 import scipy.stats
 import matplotlib.pylab as plt
 
-import sys
-sys.path.insert(0,'src')
+
 import heteroskedastic
 
 
@@ -81,29 +61,32 @@ Y_tilde = np.log(Y01+a_eps) - 0.5 * s2_tilde
 ymean = np.log(Y01.mean(0)) + np.mean(Y_tilde-np.log(Y01.mean(0)))
 Y_tilde = Y_tilde - ymean
 
-
-import heteroskedastic
+# =============================================================================
+# y_std = np.std(Y_tilde)
+# Y_tilde_rescale = Y_tilde / y_std
+# s2_tilde_rescale = s2_tilde / y_std**2
+# 
+# =============================================================================
+#import heteroskedastic
 
 
 ## GP setup and hyperparam optimisation
 ## ====================================
 
-kernel = gpflow.kernels.RBF(1)
+kernel = gpflow.kernels.RBF(variance=np.var(Y_tilde), lengthscales=np.std(X))
 model = heteroskedastic.SGPRh((X, Y_tilde), kernel=kernel, sn2=s2_tilde, Z=Z)
-model.kernel.lengthscales = np.std(X)
-model.kernel.variance = np.var(Y_tilde)
+#model.kernel.lengthscales = np.std(X)
+#model.kernel.variance = np.var(Y_tilde)
 
 
 opt = gpflow.optimizers.Scipy()
 print('\nloglik (before) =', model.maximum_log_likelihood_objective())
-print('ampl =', model.kernel.variance)
-print('leng =', model.kernel.lengthscales)
-### First issue: argument (closure) of opt.minimize
-target = lambda: -model.maximum_log_likelihood_objective() #/ Y_tilde.shape[1]
-opt.minimize(target, model.trainable_variables)
+# print('ampl =', model.kernel.variance)
+# print('leng =', model.kernel.lengthscales)
+opt.minimize(model.training_loss, model.trainable_variables)
 print('loglik  (after) =', model.maximum_log_likelihood_objective())
-print('ampl =', model.kernel.variance)
-print('leng =', model.kernel.lengthscales)
+# print('ampl =', model.kernel.variance)
+# print('leng =', model.kernel.lengthscales)
 
 
 
@@ -112,7 +95,11 @@ print('leng =', model.kernel.lengthscales)
 ## =============
 
 fmu, fs2 = model.predict_f(Xtest)
+# =============================================================================
+# fmu *= y_std
+# fs2 *= y_std**2
 fmu = fmu + ymean
+# =============================================================================
 lb = fmu - 2 * np.sqrt(fs2)
 ub = fmu + 2 * np.sqrt(fs2)
 
@@ -129,8 +116,6 @@ for i in range(fmu.shape[0]):
     mu_dir[i,:] = samples.mean(0)
     lb_dir[i,:] = Q[0,:]
     ub_dir[i,:] = Q[1,:]
-
-
 
 
 
@@ -177,4 +162,4 @@ plt.xticks([], [])
 plt.legend()
 
 plt.show()
-quit()
+
