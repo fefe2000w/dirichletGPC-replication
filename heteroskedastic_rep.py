@@ -70,10 +70,6 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
     def maximum_log_likelihood_objective(self):
         return self.elbo()
     
-    @inherit_check_shapes
-    def mean_negative_log_likelihood(self):
-        return -self.elbo() / self.num_latent
-    
     def elbo(self):
         X, Y = self.data
         Z = self.inducing_variable
@@ -86,7 +82,7 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
         kuf = Kuf(Z, self.kernel, X)
         kuu = Kuu(Z, self.kernel, jitter=default_jitter())
         L = tf.linalg.cholesky(kuu)
-        invL_Kuf = tf.linalg.triangular_solve(L, kuf, lower=True)
+        invL_kuf = tf.linalg.triangular_solve(L, kuf, lower=True)
         Err = Y - self.mean_function(X)
         
         bound = 0
@@ -99,7 +95,7 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
                 sn2 = self.likelihood.variance
             sigma = tf.sqrt(sn2)
             
-            A = invL_Kuf / sigma
+            A = invL_kuf / sigma
             AAT = tf.linalg.matmul(A, A, transpose_b=True)
             B = AAT + tf.eye(num_inducing, dtype=default_float())
             LB = tf.linalg.cholesky(B)
@@ -124,7 +120,7 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
         return bound
     
     @inherit_check_shapes
-    def predict_f(self, Xnew, full_cov=False):
+    def predict_f(self, Xnew, full_cov: bool = False, full_output_cov: bool = False):
         X, Y = self.data
         Z = self.inducing_variable
         num_inducing = self.inducing_variable.num_inducing
@@ -132,7 +128,7 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
         kuu = Kuu(Z, self.kernel, jitter=default_jitter())
         kus = Kuf(Z, self.kernel, Xnew)
         L = tf.linalg.cholesky(kuu)
-        invL_Kuf = tf.linalg.triangular_solve(L, kuf, lower=True)
+        invL_kuf = tf.linalg.triangular_solve(L, kuf, lower=True)
         Err = Y - self.mean_function(X)
         
         mu = None
@@ -146,37 +142,32 @@ class SGPRh(GPModel, InternalDataTrainingLossMixin):
                 sn2 = self.likelihood.variance
             sigma = tf.sqrt(sn2)
         
-        A = invL_Kuf / sigma
-        AAT = tf.linalg.matmul(A, A, transpose_b=True)
-        B = AAT + tf.eye(num_inducing, dtype=default_float())
-        LB = tf.linalg.cholesky(B)
-        err_sigma = tf.reshape(err, [self.num_data]) / sigma
-        err_sigma = tf.reshape(err_sigma, [self.num_data, 1])
-        Aerr = tf.linalg.matmul(A, err_sigma)
-        c = tf.linalg.triangular_solve(LB, Aerr, lower=True)
-        tmp1 = tf.linalg.triangular_solve(L, kus, lower=True)
-        tmp2 = tf.linalg.triangular_solve(LB, tmp1, lower=True)
-        mean = tf.linalg.matmul(tmp2, c, transpose_a=True)
+            A = invL_kuf / sigma
+            AAT = tf.linalg.matmul(A, A, transpose_b=True)
+            B = AAT + tf.eye(num_inducing, dtype=default_float())
+            LB = tf.linalg.cholesky(B)
+            err_sigma = tf.reshape(err, [self.num_data]) / sigma
+            err_sigma = tf.reshape(err_sigma, [self.num_data, 1])
+            Aerr = tf.linalg.matmul(A, err_sigma)
+            c = tf.linalg.triangular_solve(LB, Aerr, lower=True)
+            tmp1 = tf.linalg.triangular_solve(L, kus, lower=True)
+            tmp2 = tf.linalg.triangular_solve(LB, tmp1, lower=True)
+            mean = tf.linalg.matmul(tmp2, c, transpose_a=True)
         
-        if full_cov:
-            raise Exception('full_cov not imploemented!')
-        else:
-            var = self.kernel(Xnew, full_cov=False) + tf.reduce_sum(tf.square(tmp2), 0) \
-                - tf.reduce_sum(tf.square(tmp1), 0)
-            shape = tf.stack([1, tf.shape(err)[1]])
-            var = tf.tile(tf.expand_dims(var, 1), shape)
+            if full_cov:
+                raise Exception('full_cov not imploemented!')
+            else:
+                var = self.kernel(Xnew, full_cov=False) + tf.reduce_sum(tf.square(tmp2), 0) \
+                    - tf.reduce_sum(tf.square(tmp1), 0)
+                shape = tf.stack([1, tf.shape(err)[1]])
+                var = tf.tile(tf.expand_dims(var, 1), shape)
         
-        print(mean)
-        print(var)
-            
-        if mu is None or cov is None:
-            mu = mean
-            cov = var
-        else:
-            mu = tf.concat([mu, mean], 1)
-            cov = tf.concat([cov, var], 1)
-
-        ### Second issue: cannot concat scalar
+            if mu is None or cov is None:
+                mu = mean
+                cov = var
+            else:
+                mu = tf.concat([mu, mean], 1)
+                cov = tf.concat([cov, var], 1)
         
         mu = mu + self.mean_function(Xnew)
         return mu, cov
